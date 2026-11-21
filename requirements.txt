@@ -1,0 +1,3 @@
+numpy
+opencv-python
+pyrealsense2-macosx  # community macOS build, Intel only publishes pyrealsense2 for Linux/Windows
