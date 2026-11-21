@@ -1,8 +1,8 @@
 import unittest
 
 from tictactoe import (
-    DRAW, EMPTY_BOARD, LINES, O_WINS, ONGOING, X_WINS, Cell, from_cell, from_string, is_full, legal_moves,
-    other, play, status, to_cell, to_string, whose_turn, winner, winning_line,
+    DRAW, EMPTY_BOARD, LINES, O_WINS, ONGOING, X_WINS, Cell, from_string, is_full, legal_moves,
+    other, play, status, to_string, whose_turn, winner, winning_line,
 )
 
 
@@ -82,10 +82,6 @@ class BoardTest(unittest.TestCase):
         self.assertEqual(Cell("X"), Cell.X)
         self.assertEqual(Cell(" "), Cell.EMPTY)
         self.assertEqual(str(Cell.O), "O")
-
-    def test_drawer_cell_numbering(self):
-        self.assertEqual([to_cell(i) for i in range(9)], list(range(1, 10)))
-        self.assertEqual([from_cell(c) for c in range(1, 10)], list(range(9)))
 
 
 if __name__ == "__main__":

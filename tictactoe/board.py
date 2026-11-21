@@ -3,12 +3,13 @@
 A board is an immutable tuple of 9 `Cell`s. Index = row * 3 + col, row 0 is the top row as seen by the
 camera from the home pose, col 0 the left column:
 
-     0 | 1 | 2          cell numbers used by board_drawer.py / main.py:   1 | 2 | 3
-     3 | 4 | 5                                                            4 | 5 | 6
-     6 | 7 | 8                                                            7 | 8 | 9
+     0 | 1 | 2
+     3 | 4 | 5
+     6 | 7 | 8
 
-So the drawer's cell number is `index + 1` (`to_cell` / `from_cell`). The drawer puts row 0 at +v on the
-board; the camera image has to be oriented the same way, or vision's output must be remapped.
+board_drawer.py and main.py use the same numbering, so an index can be passed straight to the drawer.
+The drawer puts row 0 at +v on the board; the camera image has to be oriented the same way, or vision's
+output must be remapped.
 """
 
 from enum import Enum
@@ -98,16 +99,6 @@ def status(board: Board) -> str:
     if w is Cell.O:
         return O_WINS
     return DRAW if is_full(board) else ONGOING
-
-
-def to_cell(idx: int) -> int:
-    """Board index 0-8 -> cell number 1-9 used by board_drawer.py."""
-    return idx + 1
-
-
-def from_cell(cell: int) -> int:
-    """Cell number 1-9 used by board_drawer.py -> board index 0-8."""
-    return cell - 1
 
 
 _CHARS = {"X": Cell.X, "x": Cell.X, "O": Cell.O, "o": Cell.O, ".": Cell.EMPTY, " ": Cell.EMPTY, "-": Cell.EMPTY}

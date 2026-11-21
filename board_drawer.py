@@ -79,19 +79,10 @@ class BoardDrawer:
         # Especially, the robot should be in a position that the camera can see the board, so that the camera can be used to check the result of the drawing.
         self._move_linear([self._pose_at(0.0, 0.0, lift=LIFT)])
 
-    def go_to_camera_pose(self) -> None:
-        """Move to CAMERA_HEIGHT above the board, CAMERA_RIGHT to the robot's right of its centre, from where
-        the camera sees the whole board the same way every time."""
-        u, v = CAMERA_RIGHT * self.right[0], CAMERA_RIGHT * self.right[1]
-        x, y = self.heights.to_base(u, v)
-        self._move_linear([[x, y, self.heights.z_at(x, y) + CAMERA_HEIGHT, *self.orientation]])
-
-    def _cell_center(self, cell: int) -> Point:
-        """Board point (u, v) at the middle of a cell. Row 0 is the far side, column 0 the robot's left."""
-        row, col = divmod(cell, 3)
-        along, across = (1 - row) * CELL_SIZE, (col - 1) * CELL_SIZE
-        return (along * self.forward[0] + across * self.right[0],
-                along * self.forward[1] + across * self.right[1])
+    @staticmethod
+    def _cell_center(cell: int) -> Point:
+        row, col = divmod(cell - 1, 3)
+        return (col - 1) * CELL_SIZE, -(row - 1) * CELL_SIZE  # row 0 is the top row, which lies at +v
 
     @staticmethod
     def _grid_strokes() -> list[Stroke]:

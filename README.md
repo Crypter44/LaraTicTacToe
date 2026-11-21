@@ -106,9 +106,57 @@ python camera.py --index 1        # if the RealSense is not found automatically
 
 Over a USB 2.0 cable it delivers at most 1280 × 720 at 5 fps.
 
+## Game logic (`tictactoe/`)
+
+The robot's "brain": plain Python with no hardware and no dependencies outside the standard library. Given the game so far, it checks what the camera reports, picks the robot's move, and tells when the game is over. The future game loop calls it between taking a photo and drawing a symbol.
+
+- **`board.py`: board and rules.** A board is a tuple of 9 cells (`Cell.EMPTY`, `Cell.X`, `Cell.O`), numbered 0–8 like the drawer. Functions: `play`, `legal_moves`, `winner`, `winning_line` (e.g. to strike it through), `status` (`ongoing` / `x_wins` / `o_wins` / `draw`), `whose_turn`, and `from_string("X.O|...|...")` / `to_string` for tests and logs.
+- **`engine.py`: choosing a move.** `best_move(board, player, difficulty)` searches the whole game tree (negamax with a cache) and never loses. It wins as fast as it can, loses as slowly as it can, and picks at random among equally good moves so games vary. `difficulty` is `perfect`, `medium` (30 % random moves), `easy` (70 %), or any probability 0–1.
+- **`validate.py`: checking vision.** `fuse(frames)` combines several classified photos into one board by majority vote per cell. The confidence of each cell is its share of the votes. `validate(known, seen, confidence, human=Cell.O)` compares the result with the board the robot knows:
+
+  | Result | Meaning | Next step |
+  |---|---|---|
+  | `NO_CHANGE` | the human hasn't moved | wait, photograph again |
+  | `HUMAN_MOVE` | exactly one new human mark, in `obs.move` | play it into the known board |
+  | `UNCERTAIN` | a cell that matters is below `min_conf` (0.6) | photograph again |
+  | `INVALID` | two new marks, wrong symbol, or a known mark changed or vanished | retry, then ask the operator |
+
+  The robot's own marks are taken from the known board. If vision misreads one, it is only noted in `obs.detail`.
+
+Example:
+
+```python
+from tictactoe import EMPTY_BOARD, HUMAN_MOVE, Cell, best_move, fuse, play, status, validate
+
+known = play(EMPTY_BOARD, best_move(EMPTY_BOARD, Cell.X), Cell.X)  # robot (X) opens
+board, conf = fuse(frames)                                         # frames: per-photo lists of 9 Cells
+obs = validate(known, board, conf, human=Cell.O)
+if obs.kind == HUMAN_MOVE:
+    known = play(known, obs.move, Cell.O)
+    if status(known) == "ongoing":
+        drawer.draw("x", best_move(known, Cell.X, "medium"))
+```
+
+The full intended loop is in the docstring of `tictactoe/__init__.py`.
+
+Play against it in the terminal, without the robot:
+
+```bash
+python -m tictactoe                       # asks who begins (player or robot); you are O
+python -m tictactoe --first robot         # don't ask
+python -m tictactoe --human x             # play X
+python -m tictactoe --difficulty easy     # medium, easy, or a mistake probability like 0.5
+```
+
 ## Tests and diagnostics
 
-These scripts were used to develop the contact detection. They are useful when the setup changes. All write CSV logs to `logs/`.
+Unit tests for the game logic (no robot needed):
+
+```bash
+python -m unittest discover tests
+```
+
+The scripts below need the robot. They were used to develop the contact detection. They are useful when the setup changes. All write CSV logs to `logs/`.
 
 ```bash
 python tests/probe_test.py --repeat 3      # probe one point 3 times; pen 6-10 mm above the board
@@ -135,7 +183,8 @@ A good `probe_test` result has a spread of about 0.1 mm or less, with no "CONTAC
 | `camera.py` | RealSense capture |
 | `segmentation.py` | straightens a board photo and cuts it into the 9 cell images |
 | `connect.sh` | network setup for the robot |
-| `tests/` | experiments and diagnostics (see above) |
+| `tictactoe/` | game logic: rules, move choice, checking vision (see above) |
+| `tests/` | unit tests (`test_*.py`) and hardware experiments and diagnostics (`*_test.py`) |
 | `vendor/neurapy` | NEURA's robot client (proprietary) |
 
 ## Things to know
