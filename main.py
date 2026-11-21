@@ -5,7 +5,9 @@
     python main.py --real --offset 0.3      # pen 0.3 mm above the probed height instead of the default
 
 Needs board_heights.json from calibrate_board.py (run it again whenever the board moves).
-Type `g` to draw the grid, moves like `x 5` or `o 1`, `q` to quit. Keep the E-stop within reach.
+Commands: `g` draws the grid, `x 4` / `o 0` a symbol in a cell (0-8, see board_drawer.py), `c` moves to the
+camera pose, takes a photo and cuts it into the 9 cells (see segmentation.py), `q` quits.
+Keep the E-stop within reach.
 """
 
 import argparse
@@ -14,7 +16,9 @@ from pathlib import Path
 # neurapy lives in vendor/, which .venv/lib/python3.13/site-packages/vendor.pth puts on the import path
 from neurapy.robot import Robot
 
+import segmentation
 from board_drawer import DRAW_OFFSET, BoardDrawer
+from camera import Camera, save
 from height_map import HeightMap
 
 HOST = "192.168.2.13"
@@ -33,22 +37,38 @@ def connect(real: bool) -> Robot:
 
 
 def ask_command() -> list[str] | None:
-    """Ask until the input is 'g' or a valid move like 'x 5'. None means quit."""
+    """Ask until the input is 'g', 'c' or a valid move like 'x 4'. None means quit."""
     while True:
-        text = input("command ('g' = grid, 'x 5' / 'o 1' = symbol, q = quit): ").strip().lower()
+        text = input("command ('g' = grid, 'x 4' / 'o 0' = symbol, 'c' = capture, q = quit): ").strip().lower()
         if text == "q":
             return None
         parts = text.split()
-        if parts == ["g"]:
+        if parts in (["g"], ["c"]):
             return parts
-        if len(parts) == 2 and parts[0] in ("x", "o") and parts[1] in list("123456789"):
+        if len(parts) == 2 and parts[0] in ("x", "o") and parts[1] in list("012345678"):
             return parts
-        print("  invalid, expected g, or x / o followed by a cell 1-9")
+        print("  invalid, expected g, c, or x / o followed by a cell 0-8")
+
+
+def capture_board(drawer: BoardDrawer) -> None:
+    """Move to the camera pose, take a photo and, once the grid crossings are calibrated, cut it into cells."""
+    drawer.go_to_camera_pose()
+    with Camera() as camera:
+        image = camera.capture()
+    photo = save(image, "board")
+    print("photo:", photo)
+    if not segmentation.CROSSINGS_FILE.exists():
+        print(f"  no {segmentation.CROSSINGS_FILE.name} yet: python segmentation.py --calibrate {photo}")
+        return
+    cells = segmentation.split_cells(image, segmentation.load_crossings())
+    print("cells:", segmentation.save_cells(cells, segmentation.cells_folder(photo)))
 
 
 def run_command(drawer: BoardDrawer, command: list[str]) -> None:
     if command == ["g"]:
         drawer.draw_grid()
+    elif command == ["c"]:
+        capture_board(drawer)
     else:
         symbol, cell = command
         drawer.draw(symbol, int(cell))

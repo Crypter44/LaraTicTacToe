@@ -1,8 +1,10 @@
 """Draws X and O into the cells of a tic-tac-toe board with the NEURA LARA 5.
 
-Cells are numbered like this:      1 | 2 | 3
-                                   4 | 5 | 6
-                                   7 | 8 | 9
+Cells are numbered as seen from the robot, looking at the board:
+
+        far side      0 | 1 | 2
+                      3 | 4 | 5
+        robot side    6 | 7 | 8
 
 Everything comes from the board calibration (calibrate_board.py -> board_heights.json): the board centre,
 how far the board is turned against the robot's axes, and the board height at every point. Drawings are
@@ -28,6 +30,8 @@ LEAD_IN_HEIGHT = 0.003 # m above the board at the start of the run-up
 # m above the probed height while drawing. The probe stops ~1 mm after the pen first touches, so the probed
 # height lies ~1 mm inside the board; +0.5 mm leaves a light press.
 DRAW_OFFSET = 0.0005
+CAMERA_HEIGHT = 0.20   # m above the board centre for the camera pose (at 0.15 the board did not fit)
+CAMERA_RIGHT = 0.05    # m to the robot's right of the board centre for the camera pose
 
 SPEED = 0.02           # m/s
 ACCELERATION = 0.1     # m/s²
@@ -49,9 +53,10 @@ class BoardDrawer:
         self.lead_in = lead_in
         self.segment_length = segment_length
         self.orientation = heights.center_pose[3:]
+        self.forward, self.right = _robot_view(heights)
 
     def draw(self, symbol: str, cell: int) -> None:
-        """Draw 'x' or 'o' into a cell (1-9). Starts and ends with the pen parked above the board centre."""
+        """Draw 'x' or 'o' into a cell (0-8). Starts and ends with the pen parked above the board centre."""
         cu, cv = self._cell_center(cell)
         self.park()
         if symbol == "x":
@@ -74,10 +79,19 @@ class BoardDrawer:
         # Especially, the robot should be in a position that the camera can see the board, so that the camera can be used to check the result of the drawing.
         self._move_linear([self._pose_at(0.0, 0.0, lift=LIFT)])
 
-    @staticmethod
-    def _cell_center(cell: int) -> Point:
-        row, col = divmod(cell - 1, 3)
-        return (col - 1) * CELL_SIZE, -(row - 1) * CELL_SIZE  # row 0 is the top row, which lies at +v
+    def go_to_camera_pose(self) -> None:
+        """Move to CAMERA_HEIGHT above the board, CAMERA_RIGHT to the robot's right of its centre, from where
+        the camera sees the whole board the same way every time."""
+        u, v = CAMERA_RIGHT * self.right[0], CAMERA_RIGHT * self.right[1]
+        x, y = self.heights.to_base(u, v)
+        self._move_linear([[x, y, self.heights.z_at(x, y) + CAMERA_HEIGHT, *self.orientation]])
+
+    def _cell_center(self, cell: int) -> Point:
+        """Board point (u, v) at the middle of a cell. Row 0 is the far side, column 0 the robot's left."""
+        row, col = divmod(cell, 3)
+        along, across = (1 - row) * CELL_SIZE, (col - 1) * CELL_SIZE
+        return (along * self.forward[0] + across * self.right[0],
+                along * self.forward[1] + across * self.right[1])
 
     @staticmethod
     def _grid_strokes() -> list[Stroke]:
@@ -147,6 +161,17 @@ class BoardDrawer:
     def _move_circular(self, poses: list[list[float]]) -> None:
         """Arc through three poses: start (the current pose), a point on the arc, end."""
         self.robot.move_circular(target_pose=poses, speed=SPEED, acceleration=ACCELERATION, enable_safety=True)
+
+
+def _robot_view(heights: HeightMap) -> tuple[Point, Point]:
+    """Unit vectors in board coordinates pointing away from the robot ('forward') and to its right, each along
+    a board edge. The robot base stands at the origin of the base frame; the board edge facing it is the one
+    whose direction from the board centre is closest to the direction of the base."""
+    u, v = heights.to_board(0.0, 0.0)
+    quarter_turns = round(math.atan2(v, u) / (math.pi / 2))  # snap to the nearest board edge
+    towards_robot = (round(math.cos(quarter_turns * math.pi / 2)), round(math.sin(quarter_turns * math.pi / 2)))
+    forward = (-towards_robot[0], -towards_robot[1])
+    return forward, (forward[1], -forward[0])  # right of forward, seen from above with z up
 
 
 def _subdivide(stroke: Stroke, max_length: float) -> Stroke:

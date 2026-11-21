@@ -66,12 +66,35 @@ At the prompt:
 | Input | Action |
 |---|---|
 | `g` | draw the grid |
-| `x 5`, `o 1` | draw a symbol in a cell |
+| `x 4`, `o 0` | draw a symbol in a cell |
+| `c` | move to the camera pose, take a photo, cut it into the 9 cells |
 | `q` | quit |
 
-Cells are numbered 1–9 from the top left, like a phone keypad.
+Cells are numbered 0–8 as seen from the robot, looking at the board:
 
-## Camera
+```
+far side      0 | 1 | 2
+              3 | 4 | 5
+robot side    6 | 7 | 8
+```
+
+## Camera and cell images
+
+The camera pose is 20 cm above the board centre and 5 cm to the robot's right (`CAMERA_HEIGHT`, `CAMERA_RIGHT` in `board_drawer.py`). From there the board always looks the same, so the cells sit at fixed places in the photo.
+
+Once, after the grid is drawn: press `c` in `main.py`, then click the 4 crossings of the grid lines in the saved photo. The order is explained in `segmentation.py` and shown in the window.
+
+```bash
+python segmentation.py --calibrate captures/board_<time>.png   # click the crossings, writes camera_crossings.json
+python segmentation.py captures/board_<time>.png               # cut any photo -> captures/board_<time>_cells/
+python segmentation.py captures/board_<time>.png --color       # keep the colours
+```
+
+The cell images are black and white by default: white board, black pen. Uneven lighting is removed first, and small specks are dropped. The settings are the constants at the top of `segmentation.py`; `INK_DARKNESS` is the one to change if faint pen lines go missing (raise it) or board texture shows up (lower it).
+
+After that, every `c` saves the photo and `captures/board_<time>_cells/cell_0.png … cell_8.png`. Calibrate again if the camera pose or the board moves.
+
+Taking a single photo without moving the robot:
 
 The D405 works as a normal webcam; macOS needs camera permission for the terminal or editor you run it from.
 
@@ -110,6 +133,7 @@ A good `probe_test` result has a spread of about 0.1 mm or less, with no "CONTAC
 | `height_map.py` | loads the calibration, interpolates the height at any point |
 | `probing.py` | contact detection (`Prober`); its docstring lists the rules learned on the real arm |
 | `camera.py` | RealSense capture |
+| `segmentation.py` | straightens a board photo and cuts it into the 9 cell images |
 | `connect.sh` | network setup for the robot |
 | `tests/` | experiments and diagnostics (see above) |
 | `vendor/neurapy` | NEURA's robot client (proprietary) |
