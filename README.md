@@ -93,6 +93,9 @@ python tests/probe_test.py --joint 2       # watch another joint's torque (1-6)
 python tests/probe_test.py --threshold 5   # less sensitive contact threshold (Nm)
 python tests/force_test.py                 # read-only: torques while someone pushes on the pen
 python tests/servo_cycle_test.py           # servo on/off cycles in the air; pen >= 30 mm above the board
+python tests/stroke_test.py --real --offset 3               # draw one line in the air, record the real path
+python tests/stroke_test.py --real --offset 3 --segment 20  # same with blended waypoints every 20 mm
+python tests/stroke_test.py --real --offset 3 --lead-in 20  # same with a 20 mm run-up
 ```
 
 A good `probe_test` result has a spread of about 0.1 mm or less, with no "CONTACT" before the pen reaches the board.

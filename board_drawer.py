@@ -18,8 +18,13 @@ from height_map import HeightMap
 CELL_SIZE = 0.08       # m between the centres of two neighbouring cells
 SYMBOL_SIZE = 0.04     # m, width of an X and diameter of an O
 LIFT = 0.04            # m the pen rises between strokes
-CIRCLE_POINTS = 36     # the O is drawn as a polygon with this many corners
-SEGMENT_LENGTH = 0.02  # m, longer strokes are split so the pen follows the measured height in between
+# Issue #2: the arm was unsteady for the first ~2 cm of every stroke once strokes were sent as one blended
+# move through waypoints every 2 cm; single-target moves (and teach mode) never showed it. Along a straight
+# line the board height deviates only ~0.2 mm from a straight line between its ends, so straight lines go as
+# one move again. Both options below stay switchable for tests/stroke_test.py.
+SEGMENT_LENGTH = 0.0   # m, split strokes into waypoints this far apart to follow the height map; 0 = off
+LEAD_IN = 0.0          # m run-up in the air before each stroke, the pen touches down while moving; 0 = off
+LEAD_IN_HEIGHT = 0.003 # m above the board at the start of the run-up
 # m above the probed height while drawing. The probe stops ~1 mm after the pen first touches, so the probed
 # height lies ~1 mm inside the board; +0.5 mm leaves a light press.
 DRAW_OFFSET = 0.0005
@@ -33,28 +38,34 @@ Stroke = list[Point]         # points drawn in one go, without lifting the pen
 
 
 class BoardDrawer:
-    def __init__(self, robot, heights: HeightMap, offset: float = DRAW_OFFSET):
+    def __init__(self, robot, heights: HeightMap, offset: float = DRAW_OFFSET, lead_in: float = LEAD_IN,
+                 segment_length: float = SEGMENT_LENGTH):
         """`robot` is a connected neurapy Robot in automatic mode, `heights` the board calibration,
-        `offset` the pen height above the probed board height while drawing."""
+        `offset` the pen height above the probed board height while drawing, `lead_in` the run-up length,
+        `segment_length` the waypoint spacing along strokes (0 = only the stroke's own points)."""
         self.robot = robot
         self.heights = heights
         self.offset = offset
+        self.lead_in = lead_in
+        self.segment_length = segment_length
         self.orientation = heights.center_pose[3:]
 
     def draw(self, symbol: str, cell: int) -> None:
         """Draw 'x' or 'o' into a cell (1-9). Starts and ends with the pen parked above the board centre."""
         cu, cv = self._cell_center(cell)
-        strokes = self._x_strokes(cu, cv) if symbol == "x" else self._o_strokes(cu, cv)
         self.park()
-        for stroke in strokes:
-            self._draw_stroke(stroke)
+        if symbol == "x":
+            for stroke in self._x_strokes(cu, cv):
+                self.draw_stroke(stroke)
+        else:
+            self.draw_circle(cu, cv)
         self.park()
 
     def draw_grid(self) -> None:
         """Draw the two lines along each board edge that separate the cells."""
         self.park()
         for stroke in self._grid_strokes():
-            self._draw_stroke(stroke)
+            self.draw_stroke(stroke)
         self.park()
 
     def park(self) -> None:
@@ -87,21 +98,36 @@ class BoardDrawer:
             [(cu - h, cv + h), (cu + h, cv - h)],
         ]
 
-    @staticmethod
-    def _o_strokes(cu: float, cv: float) -> list[Stroke]:
+    def draw_circle(self, cu: float, cv: float) -> None:
+        """Draw a circle around (cu, cv) as two half circles with move_circular, which takes an arc's start,
+        middle and end point. A polygon sent as one blended move made the pen unsteady at the start (issue #2)."""
         r = SYMBOL_SIZE / 2
-        # range up to CIRCLE_POINTS inclusive, so the last point lands on the first and closes the circle
-        angles = [2 * math.pi * i / CIRCLE_POINTS for i in range(CIRCLE_POINTS + 1)]
-        return [[(cu + r * math.cos(a), cv + r * math.sin(a)) for a in angles]]
+        right, top, left, bottom = [(cu + r * math.cos(a), cv + r * math.sin(a)) for a in
+                                    (0, math.pi / 2, math.pi, 3 * math.pi / 2)]
+        self._move_linear([self._pose_at(*right, lift=LIFT)])
+        self._move_linear([self._pose_at(*right)])
+        self._move_circular([self._pose_at(*right), self._pose_at(*top), self._pose_at(*left)])
+        self._move_circular([self._pose_at(*left), self._pose_at(*bottom), self._pose_at(*right)])
+        self._move_linear([self._pose_at(*right, lift=LIFT)])
 
-    def _draw_stroke(self, stroke: Stroke) -> None:
-        """Hover above the first point, lower the pen, draw through all points, lift the pen."""
-        points = _subdivide(stroke)
-        first, last = points[0], points[-1]
-        self._move_linear([self._pose_at(*first, lift=LIFT)])
-        self._move_linear([self._pose_at(*first)])
-        self._move_linear([self._pose_at(*point) for point in points[1:]])
-        self._move_linear([self._pose_at(*last, lift=LIFT)])
+    def draw_stroke(self, stroke: Stroke) -> None:
+        """Hover above the run-up start, lower the pen to just above the board, run up and draw through all
+        points in one smooth motion, lift the pen."""
+        points = _subdivide(stroke, self.segment_length)
+        if self.lead_in > 0:
+            start, height, path = self._run_up_start(points), LEAD_IN_HEIGHT, points
+        else:  # old behaviour: lower straight onto the first point, then draw from there
+            start, height, path = points[0], 0.0, points[1:]
+        self._move_linear([self._pose_at(*start, lift=LIFT)])
+        self._move_linear([self._pose_at(*start, lift=height)])
+        self._move_linear([self._pose_at(*point) for point in path])
+        self._move_linear([self._pose_at(*points[-1], lift=LIFT)])
+
+    def _run_up_start(self, points: Stroke) -> Point:
+        """Point `lead_in` before the stroke, continuing its first direction backwards."""
+        (u0, v0), (u1, v1) = points[0], points[1]
+        length = math.hypot(u1 - u0, v1 - v0)
+        return u0 - (u1 - u0) / length * self.lead_in, v0 - (v1 - v0) / length * self.lead_in
 
     def _pose_at(self, u: float, v: float, lift: float = 0.0) -> list[float]:
         """Robot pose at board point (u, v): measured board height + offset + `lift`."""
@@ -118,11 +144,17 @@ class BoardDrawer:
                                    enable_safety=True, blending=True, blending_mode=2,
                                    blend_radius=BLEND_RADIUS)
 
+    def _move_circular(self, poses: list[list[float]]) -> None:
+        """Arc through three poses: start (the current pose), a point on the arc, end."""
+        self.robot.move_circular(target_pose=poses, speed=SPEED, acceleration=ACCELERATION, enable_safety=True)
 
-def _subdivide(stroke: Stroke) -> Stroke:
-    """Insert points so no piece of the stroke is longer than SEGMENT_LENGTH."""
+
+def _subdivide(stroke: Stroke, max_length: float) -> Stroke:
+    """Insert points so no piece of the stroke is longer than `max_length` (0 = leave the stroke as it is)."""
+    if max_length <= 0:
+        return list(stroke)
     points = [stroke[0]]
     for (u0, v0), (u1, v1) in itertools.pairwise(stroke):
-        pieces = max(1, math.ceil(math.hypot(u1 - u0, v1 - v0) / SEGMENT_LENGTH))
+        pieces = max(1, math.ceil(math.hypot(u1 - u0, v1 - v0) / max_length))
         points += [(u0 + (u1 - u0) * i / pieces, v0 + (v1 - v0) * i / pieces) for i in range(1, pieces + 1)]
     return points
